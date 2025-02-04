@@ -1,0 +1,8 @@
+{
+    "api_key": "YOUR_GEMINI_API_KEY_HERE",
+    "whatsapp": {
+        "number": "YOUR_WHATSAPP_NUMBER",
+        "menu_link": "YOUR_MENU_LINK"
+    },
+    "serial_number": null
+}

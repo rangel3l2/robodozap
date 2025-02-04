@@ -1,0 +1,41 @@
+# Virtual Environment
+venv/
+env/
+.env/
+.venv/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Application specific
+config.json
+whatsapp_selenium_data/
+*.log
+
+# Sensitive data
+config.json
+.env
+credentials.json
+secrets/
+*.key
+*.pem
+whatsapp_selenium_data/
+
+# Logs and debugging
+debug.log
+*.log
+logs/
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# System files
+.DS_Store
+Thumbs.db

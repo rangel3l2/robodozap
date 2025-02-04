@@ -1,0 +1,9 @@
+windows Registry Editor Version 5.00
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\RoboDoZap]
+"Path"="C:\Program Files (x86)\\robo_do_zap\\robo_do_zap.exe"
+"Version"="1.0"
+"Developer"="Rangel Gomes"
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\Run]
+"RoboDoZap"="C:\Program Files (x86)\\robo_do_zap\\robo_do_zap.exe"

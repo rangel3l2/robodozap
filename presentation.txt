@@ -1,0 +1,9 @@
+ Sistema: Robo do Zap
+
+    Desenvolvido por: Rangel Gomes
+
+    Funcionalidades:
+    - Envio automatizado de mensagens pelo WhatsApp Web
+    - Personalização de mensagens com o nome do destinatário
+    - Carregamento de contatos a partir de um arquivo CSV
+    - Salvamento e carregamento de mensagens e links de cardápio

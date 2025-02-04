@@ -1,0 +1,5 @@
+ Instruções de Uso:
+    1. Selecione o arquivo CSV com os contatos.
+    2. Digite a mensagem personalizada, usando {name} para inserir o nome do destinatário.
+    3. Insira o link do cardápio.
+    4. Clique em "Iniciar Envio" para começar a enviar as mensagens.
