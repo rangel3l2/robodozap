@@ -4,6 +4,7 @@ from tkinter.ttk import Progressbar
 import pandas as pd
 import threading
 import time
+import uuid  # Adicionada importação do uuid
 from datetime import datetime
 from selenium import webdriver
 from selenium.webdriver.common.by import By
@@ -19,6 +20,8 @@ from webdriver_manager.chrome import ChromeDriverManager
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.keys import Keys
 from tkhtmlview import HTMLLabel
+import hashlib
+import string
 
 # Configurações globais
 CONFIG_FILE = "config.json"
@@ -64,6 +67,16 @@ def load_config():
     with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
         return json.load(f)
 
+def save_config(config):
+    """Salva as configurações no arquivo config.json"""
+    try:
+        with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
+            json.dump(config, f, indent=4)
+        return True
+    except Exception as e:
+        messagebox.showerror("Erro", f"Erro ao salvar configurações: {e}")
+        return False
+
 def initialize_config():
     """Inicializa configurações globais"""
     global GEMINI_API_KEY, WHATSAPP_NUMBER, MENU_LINK
@@ -99,7 +112,7 @@ def get_dia_semana():
     }
     return dias[datetime.now().strftime('%A')]
 
-def gerar_mensagem_pizza_mania(nome):
+def gerar_mensagem_pizza_mania(nome="%name%"):
     """Gera mensagem personalizada via Gemini API"""
     try:
         url = "https://generativelanguage.googleapis.com/v1/models/gemini-pro:generateContent"
@@ -148,10 +161,9 @@ def gerar_mensagem_pizza_mania(nome):
     
     # Formato final da mensagem com ordem específica
     mensagem_completa = (
-        f"*Boa noite {nome}!* 👋\n\n"  # Saudação inicial fixa
+        f"*Boa noite {nome}!* 👋\n\n"  # Saudação inicial com placeholder
         f"Hoje é *{dia_atual}*! 📅\n\n"  # Dia da semana
         f"{corpo_mensagem}\n\n"  # Corpo da mensagem gerado pela IA
-        f"📱 _Peça agora_ na *Pizza Mania*: *{WHATSAPP_NUMBER}*\n"  # Contato
         f"🔍 _Veja nosso cardápio:_ {MENU_LINK}"  # Link do cardápio
     )
     
@@ -159,7 +171,8 @@ def gerar_mensagem_pizza_mania(nome):
 
 def mostrar_preview_mensagem():
     """Mostra preview da mensagem com botões de ação"""
-    mensagem = gerar_mensagem_pizza_mania("Cliente Teste")
+    # Usando %name% para o preview
+    mensagem = gerar_mensagem_pizza_mania()  # Sem parâmetro usa o default %name%
     
     # Criar janela de preview
     preview = tk.Toplevel(root)
@@ -308,7 +321,7 @@ def wait_for_whatsapp_login(driver):
 def send_whatsapp_message(driver, phone, message):
     """Envia mensagem individual via WhatsApp Web"""
     try:
-        # URL codificada com número e mensagem
+        # URL codificada com número e mensagem (mensagem já com nome substituído)
         encoded_message = requests.utils.quote(message)
         url = f"https://web.whatsapp.com/send?phone={phone}&text={encoded_message}"
         driver.get(url)
@@ -402,6 +415,273 @@ def enviar_mensagens(contatos, mensagem_base):
             driver.quit()
             driver = None
 
+def get_serial_number():
+    """Obtém o número serial baseado no MAC + 211292"""
+    mac = uuid.getnode()
+    return f"{mac}211292"
+
+def create_menu():
+    """Cria menu superior com opções de configuração"""
+    menubar = tk.Menu(root)
+    root.config(menu=menubar)
+    
+    config_menu = tk.Menu(menubar, tearoff=0)
+    menubar.add_cascade(label="Configurações", menu=config_menu)
+    config_menu.add_command(label="Padrões de Entrada", command=lambda: DefaultsDialog(root))
+    
+    help_menu = tk.Menu(menubar, tearoff=0)
+    menubar.add_cascade(label="Ajuda", menu=help_menu)
+    help_menu.add_command(label="Sobre", command=lambda: AboutDialog(root))
+
+class AboutDialog(tk.Toplevel):
+    """Diálogo com informações sobre o sistema"""
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.title("Sobre o Sistema")
+        self.geometry("600x600")  # Aumentado para acomodar os contatos
+        self.resizable(False, False)
+        
+        main_frame = tk.Frame(self, padx=20, pady=20)
+        main_frame.pack(fill=tk.BOTH, expand=True)
+        
+        # Título e desenvolvedor
+        tk.Label(main_frame, 
+                text="Robo do Zap",
+                font=("Helvetica", 14, "bold")).pack(pady=(0,10))
+        
+        tk.Label(main_frame,
+                text="Desenvolvido por Rangel Gomes",
+                font=("Helvetica", 12, "bold")).pack()
+        tk.Label(main_frame,
+                text="Empresa: T4M2",
+                font=("Helvetica", 12)).pack(pady=(0,20))
+        
+        # Documentação
+        text_container = tk.Frame(main_frame)
+        text_container.pack(fill=tk.BOTH, expand=True)
+        
+        scrollbar = tk.Scrollbar(text_container)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        text = tk.Text(text_container, 
+                      wrap=tk.WORD, 
+                      yscrollcommand=scrollbar.set,
+                      font=("Helvetica", 10),
+                      padx=10,
+                      pady=10)
+        text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        
+        scrollbar.config(command=text.yview)
+        
+        # Conteúdo da documentação
+        docs = """
+Sistema automatizado para envio de mensagens personalizadas via WhatsApp Web.
+
+FUNCIONALIDADES:
+• Geração de mensagens usando IA (Gemini)
+• Envio automático para múltiplos contatos
+• Preview e personalização de mensagens
+• Controle de taxa de envio
+• Interface gráfica intuitiva
+
+FORMATO DO ARQUIVO CSV:
+O sistema lê arquivos CSV com as seguintes colunas:
+- name: Nome do cliente
+- phone: Número do WhatsApp (formato: 5567999999999)
+
+Exemplo:
+name,phone
+João Silva,5567999999999
+Maria Santos,5567888888888
+
+CONFIGURAÇÕES:
+1. Padrões de Entrada:
+   - Número WhatsApp: Seu número de contato
+   - Link do Cardápio: URL do cardápio online
+   - Serial: Identificação única da instalação
+
+2. Limites de Envio:
+   - Máximo de 45 mensagens por hora
+   - Pausa de 5 segundos entre mensagens
+   - Pausa de 5 minutos a cada 30 mensagens
+
+NOTAS IMPORTANTES:
+• Mantenha o WhatsApp Web logado
+• Verifique a formatação do CSV
+• Aguarde as pausas entre envios
+• Não feche o navegador durante o processo
+• Faça backup do arquivo de configuração
+
+SUPORTE:
+Em caso de problemas:
+1. Verifique a conexão com internet
+2. Confirme o login do WhatsApp Web
+3. Valide o formato do arquivo CSV
+4. Certifique-se que o navegador não está bloqueado
+"""
+        text.insert("1.0", docs)
+        text.config(state="disabled")
+        
+        # Separador
+        separator = tk.Frame(main_frame, height=2, bg="gray75")
+        separator.pack(fill=tk.X, pady=15)
+        
+        # Informações de contato em frame separado com fundo diferenciado
+        contact_frame = tk.Frame(main_frame, bg="#f0f0f0", padx=15, pady=15)
+        contact_frame.pack(fill=tk.X, pady=10)
+        
+        contact_title = tk.Label(contact_frame, 
+                               text="INFORMAÇÕES DE CONTATO",
+                               font=("Helvetica", 11, "bold"),
+                               bg="#f0f0f0")
+        contact_title.pack(anchor="w", pady=(0,10))
+        
+        contacts = [
+            ("Email:", "rangel-3l@hotmail.com"),
+            ("Portfolio:", "rangel3l1.github.io"),
+            ("LinkedIn:", "@rangel3l"),
+            ("Instagram:", "@rangel3l")
+        ]
+        
+        for label, value in contacts:
+            contact_row = tk.Frame(contact_frame, bg="#f0f0f0")
+            contact_row.pack(fill=tk.X, pady=2)
+            
+            tk.Label(contact_row, 
+                    text=f"{label}",
+                    font=("Helvetica", 10, "bold"),
+                    width=10,
+                    anchor="w",
+                    bg="#f0f0f0").pack(side=tk.LEFT)
+                    
+            tk.Label(contact_row,
+                    text=value,
+                    font=("Helvetica", 10),
+                    bg="#f0f0f0").pack(side=tk.LEFT)
+        
+        # Botão Fechar
+        tk.Button(main_frame, 
+                 text="Fechar",
+                 command=self.destroy,
+                 width=15,
+                 height=2).pack(pady=(20,0))
+
+class SerialDialog(tk.Toplevel):
+    """Diálogo simples de ativação do produto"""
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.title("Ativação do Produto")
+        self.geometry("400x200")
+        
+        main_frame = tk.Frame(self, padx=20, pady=20)
+        main_frame.pack(fill=tk.BOTH, expand=True)
+        
+        tk.Label(main_frame, 
+                text="Pizza Mania - Ativação do Produto",
+                font=("Helvetica", 12, "bold")).pack(pady=(0,20))
+        
+        serial_frame = tk.Frame(main_frame)
+        serial_frame.pack(fill=tk.X, pady=10)
+        
+        tk.Label(serial_frame, text="Serial:").pack(side=tk.LEFT, padx=5)
+        self.serial_entry = tk.Entry(serial_frame, width=30)
+        self.serial_entry.pack(side=tk.LEFT, padx=5)
+        
+        button_frame = tk.Frame(main_frame)
+        button_frame.pack(pady=20)
+        
+        tk.Button(button_frame, text="Ativar", 
+                 command=self.validate_serial).pack(side=tk.LEFT, padx=5)
+        tk.Button(button_frame, text="Cancelar", 
+                 command=self.destroy).pack(side=tk.LEFT, padx=5)
+
+    def validate_serial(self):
+        """Valida o serial inserido"""
+        if self.serial_entry.get() == get_serial_number():
+            config = load_config()
+            config['serial_number'] = self.serial_entry.get()
+            save_config(config)
+            messagebox.showinfo("Sucesso", "Produto ativado com sucesso!")
+            self.destroy()
+        else:
+            messagebox.showerror("Erro", "Serial inválido!")
+
+class DefaultsDialog(tk.Toplevel):
+    """Diálogo para configuração de padrões"""
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.title("Padrões de Entrada")
+        self.geometry("500x350")  # Aumentado para acomodar o serial
+        
+        main_frame = tk.Frame(self, padx=20, pady=20)
+        main_frame.pack(fill=tk.BOTH, expand=True)
+        
+        config = load_config()
+        
+        # WhatsApp Number
+        whatsapp_frame = tk.Frame(main_frame)
+        whatsapp_frame.pack(fill=tk.X, pady=(0, 10))
+        
+        tk.Label(whatsapp_frame, text="Número WhatsApp:").pack(side=tk.LEFT, padx=5)
+        self.whatsapp_entry = tk.Entry(whatsapp_frame, width=30)
+        self.whatsapp_entry.insert(0, config.get('whatsapp', {}).get('number', ''))
+        self.whatsapp_entry.pack(side=tk.LEFT, padx=5)
+        
+        # Menu Link
+        menu_frame = tk.Frame(main_frame)
+        menu_frame.pack(fill=tk.X, pady=(0, 20))
+        
+        tk.Label(menu_frame, text="Link do Cardápio:").pack(side=tk.LEFT, padx=5)
+        self.menu_entry = tk.Entry(menu_frame, width=50)
+        self.menu_entry.insert(0, config.get('whatsapp', {}).get('menu_link', ''))
+        self.menu_entry.pack(side=tk.LEFT, padx=5)
+        
+        # Separador
+        separator = tk.Frame(main_frame, height=2, bg="gray75")
+        separator.pack(fill=tk.X, pady=15)
+        
+        # Serial Number (read-only)
+        serial_frame = tk.Frame(main_frame)
+        serial_frame.pack(fill=tk.X, pady=(0, 20))
+        
+        tk.Label(serial_frame, text="Serial do Produto:", font=("Helvetica", 10, "bold")).pack(anchor='w', pady=(0,5))
+        
+        serial_container = tk.Frame(serial_frame)
+        serial_container.pack(fill=tk.X)
+        
+        serial = config.get('serial_number', '')
+        serial_parts = [serial[i:i+6] for i in range(0, len(serial), 6)][:4]
+        
+        for i, part in enumerate(serial_parts):
+            entry = tk.Entry(serial_container, width=8, font=("Consolas", 12), justify='center')
+            entry.insert(0, part)
+            entry.config(state='readonly')
+            entry.pack(side=tk.LEFT, padx=2)
+            
+            if i < 3:  # Add separator except after last entry
+                tk.Label(serial_container, text="-", font=("Consolas", 12)).pack(side=tk.LEFT)
+        
+        # Botões
+        button_frame = tk.Frame(main_frame)
+        button_frame.pack(pady=20)
+        
+        tk.Button(button_frame, text="Salvar", 
+                 command=self.save_settings).pack(side=tk.LEFT, padx=5)
+        tk.Button(button_frame, text="Cancelar", 
+                 command=self.destroy).pack(side=tk.LEFT, padx=5)
+
+    def save_settings(self):
+        """Salva as configurações de padrões"""
+        config = load_config()
+        config['whatsapp'] = {
+            'number': self.whatsapp_entry.get(),
+            'menu_link': self.menu_entry.get()
+        }
+        
+        if save_config(config):
+            initialize_config()
+            self.destroy()
+
 def main():
     """Função principal"""
     global root, message_display, start_button, csv_file_path
@@ -412,6 +692,18 @@ def main():
     root.title("Envio de Mensagens - Pizza Mania")
     root.geometry("800x600")
     
+    create_menu()
+    
+    # Verifica serial apenas se nunca foi ativado
+    config = load_config()
+    if not config.get('serial_number'):
+        root.withdraw()
+        SerialDialog(root)
+        if not config.get('serial_number'):
+            root.destroy()
+            return
+        root.deiconify()
+    
     frame_superior = tk.Frame(root)
     frame_superior.pack(pady=10, fill=tk.X)
 
@@ -421,8 +713,20 @@ def main():
     csv_label.grid(row=0, column=0, padx=5, pady=5)
     csv_entry = tk.Entry(frame_superior, textvariable=csv_file_path, width=50)
     csv_entry.grid(row=0, column=1, padx=5, pady=5)
-    csv_button = tk.Button(frame_superior, text="Selecionar", 
-                          command=lambda: csv_file_path.set(filedialog.askopenfilename()))
+    
+    def select_csv_file():
+        filename = filedialog.askopenfilename(
+            title="Selecione o arquivo CSV",
+            filetypes=[
+                ("Arquivos CSV", "*.csv"),
+                ("Todos os arquivos CSV", "*.CSV"),
+            ],
+            defaultextension=".csv"
+        )
+        if filename:
+            csv_file_path.set(filename)
+    
+    csv_button = tk.Button(frame_superior, text="Selecionar", command=select_csv_file)
     csv_button.grid(row=0, column=2, padx=5, pady=5)
 
     message_frame = tk.Frame(root)
