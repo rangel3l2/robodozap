@@ -14,20 +14,21 @@ from selenium.common.exceptions import TimeoutException
 import requests
 import json
 import os
-import atexit
 from selenium.webdriver.chrome.service import Service as ChromeService
 from webdriver_manager.chrome import ChromeDriverManager
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.keys import Keys
 from tkhtmlview import HTMLLabel
-import hashlib
-import string
+from selenium.webdriver.edge.service import Service as EdgeService
+from selenium.webdriver.edge.options import Options as EdgeOptions
+from webdriver_manager.microsoft import EdgeChromiumDriverManager
 
 # Configurações globais
 CONFIG_FILE = "config.json"
 CONFIG_TEMPLATE_FILE = "config.template.json"
 COOKIES_FILE = "whatsapp_cookies.pkl"
 USER_DATA_DIR = os.path.join(os.getcwd(), "whatsapp_selenium_data")
+PROGRESS_FILE = "send_progress.json"
 
 # Variáveis globais
 driver = None
@@ -45,6 +46,17 @@ MENU_LINK = None
 WHATSAPP_QR_SELECTOR = "#app div[data-testid='qrcode']"
 WHATSAPP_CHAT_LIST_SELECTOR = "div[data-testid='chat-list']"
 WHATSAPP_LOGIN_STATUS_FILE = "whatsapp_login_status.json"
+
+# Adicionar constante para tipos de navegador
+BROWSER_TYPES = {
+    'chrome': 'Google Chrome',
+    'edge': 'Microsoft Edge'
+}
+
+# Adicionar variável global para a barra de progresso
+progress_frame = None
+progress_var = None
+progress_label = None
 
 def load_config():
     """Carrega configurações"""
@@ -85,12 +97,20 @@ def initialize_config():
     WHATSAPP_NUMBER = config.get("whatsapp", {}).get("number", "")
     MENU_LINK = config.get("whatsapp", {}).get("menu_link", "")
 
-def initialize_driver(headless=True):
-    """Inicializa Chrome WebDriver com opção headless"""
+def initialize_driver(headless=True, browser_type='chrome'):
+    """Inicializa WebDriver com opção de escolha entre Chrome e Edge"""
+    if browser_type == 'chrome':
+        return initialize_chrome_driver(headless)
+    else:
+        return initialize_edge_driver(headless)
+
+def initialize_chrome_driver(headless):
+    """Inicializa Chrome WebDriver"""
+    # Manter código existente do Chrome exatamente como está
     options = Options()
     if headless:
-        options.add_argument("--headless=new")  # Novo modo headless do Chrome
-        options.add_argument("--window-size=1920,1080")  # Resolução necessária
+        options.add_argument("--headless=new")
+        options.add_argument("--window-size=1920,1080")
     options.add_argument(f"user-data-dir={USER_DATA_DIR}")
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
@@ -98,6 +118,54 @@ def initialize_driver(headless=True):
     options.add_argument("--disable-notifications")
     service = ChromeService(ChromeDriverManager().install())
     return webdriver.Chrome(service=service, options=options)
+
+def initialize_edge_driver(headless):
+    """Inicializa Edge WebDriver"""
+    try:
+        # Debug info
+        print("🔄 Iniciando configuração do Edge...")
+        
+        # Cria pasta de dados se não existir
+        edge_data_dir = os.path.join(USER_DATA_DIR, "edge")
+        os.makedirs(edge_data_dir, exist_ok=True)
+        
+        # Configurações do Edge
+        options = EdgeOptions()
+        options.use_chromium = True
+        
+        if headless:
+            print("🔍 Configurando modo headless...")
+            options.add_argument('--headless=new')
+        
+        # Configurações comuns
+        options.add_argument(f"user-data-dir={edge_data_dir}")
+        options.add_argument('--disable-gpu')
+        options.add_argument('--no-sandbox')
+        options.add_argument('--disable-dev-shm-usage')
+        options.add_argument('--disable-notifications')
+        options.add_argument('--window-size=1920,1080')
+        
+        # Instala/atualiza driver do Edge
+        print("⬇️ Instalando/atualizando Edge WebDriver...")
+        edge_path = EdgeChromiumDriverManager().install()
+        service = EdgeService(edge_path)
+        
+        # Inicializa o driver com mais tempo de espera
+        print("🚀 Iniciando Edge WebDriver...")
+        driver = webdriver.Edge(
+            service=service,
+            options=options
+        )
+        
+        print("✅ Edge WebDriver iniciado com sucesso!")
+        return driver
+        
+    except Exception as e:
+        print(f"❌ Erro ao inicializar Edge: {str(e)}")
+        messagebox.showerror("Erro", 
+            f"Erro ao inicializar Microsoft Edge:\n{str(e)}\n"
+            "Verifique se o Edge está instalado corretamente.")
+        return None
 
 def get_dia_semana():
     """Retorna o dia da semana atual em português"""
@@ -364,26 +432,139 @@ def send_whatsapp_message(driver, phone, message):
         print(f"❌ Erro ao enviar para {phone}: {e}")
         return False
 
+def save_progress(current_index, total):
+    """Salva o progresso atual do envio"""
+    try:
+        # Se o processo estiver completo, remove o arquivo de progresso
+        if current_index >= total:
+            if os.path.exists(PROGRESS_FILE):
+                os.remove(PROGRESS_FILE)
+                print("✅ Processo concluído, arquivo de progresso removido")
+                if progress_label:
+                    progress_label.config(text="Envio concluído! (100%)")
+            return
+
+        # Caso contrário, salva o progresso atual
+        with open(PROGRESS_FILE, 'w') as f:
+            json.dump({
+                'current_index': current_index,
+                'total': total,
+                'timestamp': datetime.now().isoformat()
+            }, f)
+    except Exception as e:
+        print(f"Erro ao salvar progresso: {e}")
+
+def load_progress():
+    """Carrega o último progresso salvo"""
+    try:
+        if os.path.exists(PROGRESS_FILE):
+            with open(PROGRESS_FILE, 'r') as f:
+                return json.load(f)
+    except Exception as e:
+        print(f"Erro ao carregar progresso: {e}")
+    return None
+
+def create_or_update_progress_bar(parent, total, reset=False):
+    """Cria ou atualiza a barra de progresso"""
+    global progress_frame, progress_var, progress_label
+    
+    # Remove barra de progresso existente se necessário
+    if progress_frame and reset:
+        progress_frame.destroy()
+        progress_frame = None
+        
+    # Cria nova barra se não existir
+    if not progress_frame:
+        progress_frame = tk.Frame(parent)
+        progress_frame.pack(fill=tk.X, pady=5)
+        
+        progress_var = tk.DoubleVar()
+        progress_bar = Progressbar(
+            progress_frame, 
+            variable=progress_var,
+            maximum=total,
+            mode='determinate'
+        )
+        progress_bar.pack(fill=tk.X, padx=10)
+        
+        progress_label = tk.Label(progress_frame, text="0%")
+        progress_label.pack(pady=5)
+    
+    return progress_var, progress_label
+
+def update_progress(progress_var, progress_label, current, total):
+    """Atualiza barra de progresso"""
+    progress_var.set(current)
+    percentage = int((current / total) * 100)
+    progress_label.config(text=f"{percentage}% ({current}/{total})")
+
 def enviar_mensagens(contatos, mensagem_base):
     """Envia mensagens para lista de contatos"""
     global driver
     
+    # Sempre reinicia a barra de progresso
+    progress_var, progress_label = create_or_update_progress_bar(root, len(contatos), reset=True)
+    
+    # Verifica progresso anterior
+    last_progress = load_progress()
+    start_index = 0
+    
+    if last_progress and last_progress['current_index'] < last_progress['total']:
+        if messagebox.askyesno("Continuar Envio", 
+                              "Existe um envio anterior incompleto. Deseja continuar de onde parou?"):
+            start_index = last_progress['current_index']
+            print(f"📝 Continuando do índice {start_index}")
+        else:
+            print("🔄 Iniciando novo envio do começo")
+            if os.path.exists(PROGRESS_FILE):
+                os.remove(PROGRESS_FILE)
+    
+    # Atualiza barra com progresso inicial
+    update_progress(progress_var, progress_label, start_index, len(contatos))
+    
+    # Carrega configuração do navegador
+    config = load_config()
+    browser_type = config.get('browser_type', 'chrome')
+    
+    print(f"🌐 Iniciando com navegador: {BROWSER_TYPES[browser_type]}")
+    
     try:
-        # Inicializa o driver em modo não-headless (normal)
-        driver = initialize_driver(headless=False)
+        # Primeiro tenta verificar login em modo headless
+        print("🔄 Iniciando driver em modo headless...")
+        driver = initialize_driver(headless=True, browser_type=browser_type)
         if not driver:
-            messagebox.showerror("Erro", "Não foi possível inicializar o navegador!")
-            return
+            raise Exception("Falha ao inicializar navegador")
             
-        # Verifica login - se não estiver logado, informa e interrompe o envio
-        if not wait_for_whatsapp_login(driver):
-            messagebox.showerror("Erro", "WhatsApp Web não está logado. Realize o login manualmente e tente novamente!")
-            return
+        # Verifica login em modo headless
+        if wait_for_whatsapp_login(driver):
+            print("✅ Login detectado, iniciando envio em modo headless...")
+        else:
+            # Se não está logado, fecha driver headless e abre modo normal
+            print("❌ Não logado, abrindo navegador para scan do QR Code...")
+            driver.quit()
+            driver = initialize_driver(headless=False, browser_type=browser_type)
+            
+            # Aguarda login com timeout maior (5 minutos)
+            if not wait_for_whatsapp_login_with_qr(driver):
+                messagebox.showerror("Erro", "Tempo excedido aguardando login do WhatsApp!")
+                return
+                
+            print("✅ Login realizado com sucesso!")
+            
+            # Fecha navegador normal e reabre em modo headless
+            driver.quit()
+            driver = initialize_driver(headless=True, browser_type=browser_type)
+            
+            # Confirma que manteve login
+            if not wait_for_whatsapp_login(driver):
+                messagebox.showerror("Erro", "Não foi possível manter o login após scan do QR Code!")
+                return
         
         mensagens_enviadas = 0
         hora_inicio = time.time()
         
-        for index, row in contatos.iterrows():
+        # Itera sobre contatos começando do índice salvo
+        for index, row in contatos.iloc[start_index:].iterrows():
             # Controle de taxa de envio
             if mensagens_enviadas >= MAX_MESSAGES_PER_HOUR:
                 tempo_espera = 3600 - (time.time() - hora_inicio)
@@ -405,6 +586,15 @@ def enviar_mensagens(contatos, mensagem_base):
             if send_whatsapp_message(driver, phone, mensagem):
                 mensagens_enviadas += 1
             
+            # Atualiza e salva progresso
+            current_index = index + 1
+            update_progress(progress_var, progress_label, current_index, len(contatos))
+            save_progress(current_index, len(contatos))
+            
+            # Se terminou, atualiza label
+            if current_index >= len(contatos):
+                progress_label.config(text="Envio concluído! (100%)")
+            
             # Delay entre mensagens
             time.sleep(DELAY_BETWEEN_MESSAGES)
             
@@ -414,6 +604,36 @@ def enviar_mensagens(contatos, mensagem_base):
         if driver:
             driver.quit()
             driver = None
+
+def wait_for_whatsapp_login_with_qr(driver, timeout=300):
+    """Aguarda login do WhatsApp com timeout maior para scan do QR Code"""
+    try:
+        driver.get("https://web.whatsapp.com/")
+        
+        # Aguarda página carregar
+        WebDriverWait(driver, 30).until(
+            lambda d: d.execute_script("return document.readyState") == "complete"
+        )
+        
+        # Aguarda ou o QR code ou a lista de chats aparecer
+        start_time = time.time()
+        while time.time() - start_time < timeout:
+            try:
+                # Verifica se está logado
+                search_box = driver.find_element(By.XPATH, '//*[@id="side"]/div[1]/div/div[2]/div[2]/div/div/p')
+                if search_box.is_displayed():
+                    print("✅ Login detectado após scan do QR Code!")
+                    save_whatsapp_login_status(True)
+                    return True
+            except:
+                # Aguarda 2 segundos antes de verificar novamente
+                time.sleep(2)
+                
+        return False
+            
+    except Exception as e:
+        print(f"❌ Erro ao aguardar login: {e}")
+        return False
 
 def get_serial_number():
     """Obtém o número serial baseado no MAC + 211292"""
@@ -611,7 +831,7 @@ class DefaultsDialog(tk.Toplevel):
     def __init__(self, parent):
         super().__init__(parent)
         self.title("Padrões de Entrada")
-        self.geometry("500x350")  # Aumentado para acomodar o serial
+        self.geometry("500x400")  # Aumentado para acomodar opções de navegador
         
         main_frame = tk.Frame(self, padx=20, pady=20)
         main_frame.pack(fill=tk.BOTH, expand=True)
@@ -636,9 +856,25 @@ class DefaultsDialog(tk.Toplevel):
         self.menu_entry.insert(0, config.get('whatsapp', {}).get('menu_link', ''))
         self.menu_entry.pack(side=tk.LEFT, padx=5)
         
-        # Separador
-        separator = tk.Frame(main_frame, height=2, bg="gray75")
-        separator.pack(fill=tk.X, pady=15)
+        # Browser Selection
+        browser_frame = tk.Frame(main_frame)
+        browser_frame.pack(fill=tk.X, pady=(0, 10))
+        
+        tk.Label(browser_frame, text="Navegador:").pack(side=tk.LEFT, padx=5)
+        
+        self.browser_var = tk.StringVar(value=config.get('browser_type', 'chrome'))
+        
+        chrome_radio = tk.Radiobutton(browser_frame, 
+                                    text="Google Chrome",
+                                    variable=self.browser_var,
+                                    value="chrome")
+        chrome_radio.pack(side=tk.LEFT, padx=10)
+        
+        edge_radio = tk.Radiobutton(browser_frame, 
+                                   text="Microsoft Edge",
+                                   variable=self.browser_var,
+                                   value="edge")
+        edge_radio.pack(side=tk.LEFT, padx=10)
         
         # Serial Number (read-only)
         serial_frame = tk.Frame(main_frame)
@@ -677,6 +913,7 @@ class DefaultsDialog(tk.Toplevel):
             'number': self.whatsapp_entry.get(),
             'menu_link': self.menu_entry.get()
         }
+        config['browser_type'] = self.browser_var.get()
         
         if save_config(config):
             initialize_config()
@@ -689,7 +926,7 @@ def main():
     initialize_config()
     
     root = tk.Tk()
-    root.title("Envio de Mensagens - Pizza Mania")
+    root.title("Envio de Mensagens - Robo do Zap")
     root.geometry("800x600")
     
     create_menu()
